@@ -50,6 +50,9 @@ module Ffmprb
           video: video && @io.channel?(:video) && OpenStruct.new(video),
           audio: audio && @io.channel?(:audio) && OpenStruct.new(audio)
         }
+        @lays = []
+        @overlays = []
+
         if channel?(:video)
           channel(:video).resolution.to_s.split('x').each do |dim|
             fail Error, "Both dimensions of a resolution must be divisible by 2, sorry about that"  unless dim.to_i % 2 == 0
@@ -60,9 +63,11 @@ module Ffmprb
       # XXX This method is exceptionally long at the moment. This is not too grand.
       # However, structuring the code should be undertaken with care, as not to harm the composition clarity.
       def filters
-        fail Error, "Nothing to roll..."  unless @reels
-        fail Error, "Supporting just full_screen for now, sorry."  unless @reels.all?(&:full_screen?)
-        return @filters  if @filters
+        if @filters
+          Ffmprb.logger.warn "Output filters called for the second time, disregarding any changes to #{self}. If you're an end user, this calls for a bug report, if you're a dev, welcome to Debugland."
+          return @filters
+        end
+        fail Error, "Nothing to roll..."  if @lays.empty?
 
         idx = process.output_index(self)
 
@@ -71,11 +76,11 @@ module Ffmprb
         # Concatting
         segments = []
 
-        @reels.each_with_index do |curr_reel, i|
+        @lays.each_with_index do |curr_lay, i|
 
           lbl = nil
 
-          if curr_reel.reel
+          if curr_lay.reel
 
             # NOTE mapping input to this lbl
 
@@ -84,18 +89,18 @@ module Ffmprb
             # NOTE Image-Padding to match the target resolution
             # TODO full screen only at the moment (see exception above)
 
-            Ffmprb.logger.debug "#{self} asking for filters of #{curr_reel.reel.io.inspect} video: #{channel(:video)}, audio: #{channel(:audio)}"
+            Ffmprb.logger.debug "#{self} asking for filters of #{curr_lay.reel.io.inspect} video: #{channel(:video)}, audio: #{channel(:audio)}"
             @filters.concat(
-              curr_reel.reel.filters_for lbl, video: channel(:video), audio: channel(:audio)
+              curr_lay.reel.filters_for lbl, video: channel(:video), audio: channel(:audio)
             )
           end
 
-          trim_prev_at = curr_reel.after || (curr_reel.transition && 0)
-          transition_length = curr_reel.transition ? curr_reel.transition.length : 0
+          trim_prev_at = curr_lay.after || (curr_lay.transition && 0)
+          transition_length = curr_lay.transition ? curr_lay.transition.length : 0
 
           if trim_prev_at
 
-            # NOTE make sure previous reel rolls _long_ enough AND then _just_ enough
+            # NOTE make sure previous lay rolls _long_ enough AND then _just_ enough
 
             prev_lbl = segments.pop
 
@@ -120,7 +125,7 @@ module Ffmprb
               )  if channel?(:audio)
             end
 
-            if curr_reel.transition
+            if curr_lay.transition
 
               # NOTE Split the previous segment for transition
 
@@ -154,14 +159,14 @@ module Ffmprb
               Ffmprb.logger.debug "Concatting segments: #{new_prev_lbl} pushed"
             end
 
-            if curr_reel.transition
+            if curr_lay.transition
 
-              # NOTE snip the end of the previous segment and combine with this reel
+              # NOTE snip the end of the previous segment and combine with this lay
 
               lbl_end1 = "o#{idx}tm#{i}b"
-              lbl_reel = "o#{idx}tn#{i}"
+              lbl_lay = "o#{idx}tn#{i}"
 
-              if !lbl  # no reel
+              if !lbl  # no lay
                 lbl_aux = "o#{idx}bk#{i}"
                 @filters.concat(
                   Filter.blank_source transition_length, channel(:video).resolution, channel(:video).fps, "#{lbl_aux}:v"
@@ -180,13 +185,13 @@ module Ffmprb
 
               # TODO the only supported transition, see #*lay
               @filters.concat(
-                Filter.blend_v transition_length, channel(:video).resolution, channel(:video).fps, ["#{lbl_end1}:v", "#{lbl || lbl_aux}:v"], "#{lbl_reel}:v"
+                Filter.blend_v transition_length, channel(:video).resolution, channel(:video).fps, ["#{lbl_end1}:v", "#{lbl || lbl_aux}:v"], "#{lbl_lay}:v"
               ) if channel?(:video)
               @filters.concat(
-                Filter.blend_a transition_length, ["#{lbl_end1}:a", "#{lbl || lbl_aux}:a"], "#{lbl_reel}:a"
+                Filter.blend_a transition_length, ["#{lbl_end1}:a", "#{lbl || lbl_aux}:a"], "#{lbl_lay}:a"
               ) if channel?(:audio)
 
-              lbl = lbl_reel
+              lbl = lbl_lay
             end
 
           end
@@ -213,10 +218,10 @@ module Ffmprb
 
         # NOTE in-process overlays first
 
-        @overlays.to_a.each_with_index do |over_reel, i|
-          next  if over_reel.duck  # NOTE this is currently a single case of multi-process... process
+        @overlays.each_with_index do |over_lay, i|
+          next  if over_lay.duck  # NOTE this is currently a single case of multi-process... process
 
-          fail Error, "Video overlays are not implemented just yet, sorry..."  if over_reel.reel.channel?(:video)
+          fail Error, "Video overlays are not implemented just yet, sorry..."  if over_lay.reel.channel?(:video)
 
           # Audio overlaying
 
@@ -224,7 +229,7 @@ module Ffmprb
 
           lbl_over = "o#{idx}l#{i}"
           @filters.concat(  # NOTE audio only, see above
-            over_reel.reel.filters_for lbl_over, video: false, audio: channel(:audio)
+            over_lay.reel.filters_for lbl_over, video: false, audio: channel(:audio)
           )
           @filters.concat(
             Filter.copy "#{lbl_out}:v", "#{lbl_nxt}:v"
@@ -242,12 +247,12 @@ module Ffmprb
         @channel_lbl_ios["#{lbl_out}:v"] = io  if channel?(:video)
         @channel_lbl_ios["#{lbl_out}:a"] = io  if channel?(:audio)
 
-        # TODO supporting just "full" overlays for now, see exception in #add_reel
-        @overlays.to_a.each_with_index do |over_reel, i|
+        # NOTE supporting just "full" overlays for now
+        @overlays.to_a.each_with_index do |over_lay, i|
 
           # NOTE this is currently a single case of multi-process... process
-          if over_reel.duck
-            fail Error, "Don't know how to duck video... yet"  if over_reel.duck != :audio
+          if over_lay.duck
+            fail Error, "Don't know how to duck video... yet"  if over_lay.duck != :audio
 
             Ffmprb.logger.info "ATTENTION: ducking audio (due to the absence of a simple ffmpeg filter) does not support streaming main input. yet."
 
@@ -269,7 +274,7 @@ module Ffmprb
             over_a_i, over_a_o = File.threaded_buffered_fifo(Process.intermediate_channel_extname(audio: true, video: false), proc_vis: process)
             lbl_over = "o#{idx}l#{i}"
             @filters.concat(
-              over_reel.reel.filters_for lbl_over, video: false, audio: channel(:audio)
+              over_lay.reel.filters_for lbl_over, video: false, audio: channel(:audio)
             )
             @channel_lbl_ios["#{lbl_over}:a"] = over_a_i
             process.proc_vis_edge process, over_a_i
@@ -278,15 +283,18 @@ module Ffmprb
             inter_i, inter_o = File.threaded_buffered_fifo(intermediate_extname, proc_vis: process)
             Ffmprb.logger.debug "Allocated fifos to buffer media (#{inter_i.path}>#{inter_o.path}) while finding silence"
 
-            ignore_broken_pipes_was = process.ignore_broken_pipes  # XXX maybe throw an exception instead?
+            ignore_broken_pipes_was = process.ignore_broken_pipes
             process.ignore_broken_pipes = true  # NOTE audio ducking process may break the overlay pipe
 
             Util::Thread.new "audio ducking" do
               process.proc_vis_edge main_av_inter_o, inter_i  # XXX mark it better
               silence = Ffmprb.find_silence(main_av_inter_o, inter_i)
 
-              Ffmprb.logger.debug "Audio ducking with silence: [#{silence.map{|s| "#{s.start_at}-#{s.end_at}"}.join ', '}]"
+              silence_res = silence.map{|s| "#{s.start_at}-#{s.end_at}"}.join(', ')
+              Ffmprb.logger.debug "Audio ducking with silence: [#{silence_res}]"
 
+
+              # NOTE (not) ignoring broken pipes here is hopefully what the caller intended
               Process.duck_audio inter_o, over_a_o, silence, main_av_o,
                 process_options: {parent: process, ignore_broken_pipes: ignore_broken_pipes_was, timeout: process.timeout},
                 video: channel(:video), audio: channel(:audio)
@@ -323,28 +331,26 @@ module Ffmprb
 
       def roll(
         reel,
-        onto: :full_screen,
         after: nil,
         transition: nil
       )
-        fail Error, "Nothing to roll..."  unless reel
         fail Error, "Supporting :transition with :after only at the moment, sorry."  unless
-          !transition || after || @reels.to_a.empty?
+          !transition || after || @lays.empty?
 
-        add_reel reel, after, transition, (onto == :full_screen)
+        add_lay reel, after, transition
       end
       alias :lay :roll
 
       def overlay(
         reel,
         at: 0,
+        transition: nil,
         duck: nil
       )
-        fail Error, "Nothing to overlay..."  unless reel
-        fail Error, "Nothing to lay over yet..."  if @reels.to_a.empty?
-        fail Error, "Ducking overlays should come last... for now"  if !duck && @overlays.to_a.last && @overlays.to_a.last.duck
+        fail Error, "Ducking overlays should come last... for now"  if !duck && @overlays.last && @overlays.last.duck
+        Ffmprb.logger.warn "Overlays are over all the lays, so they'd better be after all the lays in the script."  if @lays.empty?
 
-        add_snip reel, at, duck
+        add_overlay reel, at, transition, duck
       end
 
       def channel(medium)
@@ -357,30 +363,15 @@ module Ffmprb
 
       private
 
-      def reels_channel?(medium)
-        @reels.to_a.all?{|r| !r.reel || r.reel.channel?(medium)}
+      def add_lay(reel, after, transition)
+        fail Error, "No time to roll (after: #{after})..."  if after && after.to_f <= 0
+        Ffmprb.logger.warn "Overlays are over all the lays, so they'd better be after all the lays in the script."  unless @overlays.empty?
+
+        @lays << OpenStruct.new(reel: reel, after: after, transition: transition && Transition.new(**transition))
       end
 
-      def add_reel(reel, after, transition, full_screen)
-        fail Error, "No time to roll..."  if after && after.to_f <= 0
-        fail Error, "Partial (not coming last in process) overlays are currently unsupported, sorry."  unless @overlays.to_a.empty?
-
-        # NOTE limited functionality: transition = {effect => duration}
-        # TODO temporary obviously, see rendering
-        trans =
-          if transition
-            fail "Unsupported (yet) transition, sorry."  unless
-              transition.size == 1 && transition[:blend]
-            OpenStruct.new length: transition[:blend].to_f
-          end
-
-        (@reels ||= []) <<
-          OpenStruct.new(reel: reel, after: after, transition: trans, full_screen?: full_screen)
-      end
-
-      def add_snip(reel, at, duck)
-        (@overlays ||= []) <<
-          OpenStruct.new(reel: reel, at: at, duck: duck)
+      def add_overlay(reel, at, transition, duck)
+        @overlays << OpenStruct.new(reel: reel, at: at, transition: transition && Transition.new(**transition), duck: duck)
       end
 
     end
@@ -388,3 +379,5 @@ module Ffmprb
   end
 
 end
+
+require_relative 'output/transition'
