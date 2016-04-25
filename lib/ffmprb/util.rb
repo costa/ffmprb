@@ -54,7 +54,7 @@ module Ffmprb
                   end
                 end
               end
-              Ffmprb.logger.debug "FINISHED: #{cmd_str}"
+              Ffmprb.logger.debug{"FINISHED: #{cmd_str}"}
 
               Thread.join_children! limit, timeout: timeout
 

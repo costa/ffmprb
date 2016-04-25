@@ -46,15 +46,17 @@ NOTES = OpenStruct.new(
   B6: 1975.53
 )
 
+APPROXIMATE_RATIO = 0.06
+
 
 RSpec::Matchers.define :be_approximately do |expected|
   define_method :is_approximately? do |actual|
-    ((actual - expected)/(expected != 0 ? expected : 1)).abs < 0.06
+    ((actual - expected)/(expected != 0 ? expected : 1)).abs < APPROXIMATE_RATIO
   end
   match {|actual| is_approximately? actual}
 
   failure_message do |actual|
-    "expected that #{actual} would be within 0.06 of #{expected}"
+    "expected that #{actual} would be within #{APPROXIMATE_RATIO * 100}% of #{expected}"
   end
 end
 

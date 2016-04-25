@@ -6,8 +6,6 @@ module Ffmprb
 
       class << self
 
-        # XXX check for unknown options
-
         def video_args(video=nil)
           video = Process.output_video_options.merge(video.to_h)
           [].tap do |args|
@@ -31,7 +29,7 @@ module Ffmprb
         end
 
         def resolve(io)
-          return io  unless io.is_a? String  # XXX XXX
+          return io  unless io.is_a? String  # XXX ::File
 
           File.create(io).tap do |file|
             Ffmprb.logger.warn "Output file exists (#{file.path}), will probably overwrite"  if file.exist?
@@ -52,6 +50,7 @@ module Ffmprb
         }
         @lays = []
         @overlays = []
+        @overducks = []
 
         if channel?(:video)
           channel(:video).resolution.to_s.split('x').each do |dim|
@@ -89,7 +88,7 @@ module Ffmprb
             # NOTE Image-Padding to match the target resolution
             # TODO full screen only at the moment (see exception above)
 
-            Ffmprb.logger.debug "#{self} asking for filters of #{curr_lay.reel.io.inspect} video: #{channel(:video)}, audio: #{channel(:audio)}"
+            Ffmprb.logger.debug{"#{self} asking for filters of #{curr_lay.reel.io.inspect} video: #{channel(:video)}, audio: #{channel(:audio)}"}
             @filters.concat(
               curr_lay.reel.filters_for lbl, video: channel(:video), audio: channel(:audio)
             )
@@ -156,7 +155,7 @@ module Ffmprb
               )  if channel?(:audio)
 
               segments << new_prev_lbl
-              Ffmprb.logger.debug "Concatting segments: #{new_prev_lbl} pushed"
+              Ffmprb.logger.debug{"Concatting segments: #{new_prev_lbl} pushed"}
             end
 
             if curr_lay.transition
@@ -219,11 +218,7 @@ module Ffmprb
         # NOTE in-process overlays first
 
         @overlays.each_with_index do |over_lay, i|
-          next  if over_lay.duck  # NOTE this is currently a single case of multi-process... process
-
-          fail Error, "Video overlays are not implemented just yet, sorry..."  if over_lay.reel.channel?(:video)
-
-          # Audio overlaying
+          # NOTE Audio only overlaying for now
 
           lbl_nxt = "o#{idx}o#{i}"
 
@@ -247,58 +242,51 @@ module Ffmprb
         @channel_lbl_ios["#{lbl_out}:v"] = io  if channel?(:video)
         @channel_lbl_ios["#{lbl_out}:a"] = io  if channel?(:audio)
 
-        # NOTE supporting just "full" overlays for now
-        @overlays.to_a.each_with_index do |over_lay, i|
+        @overducks.each_with_index do |over_duck, i|
+          Ffmprb.logger.info "ATTENTION: ducking audio (due to the absence of a simple ffmpeg filter) does not support streaming main input. yet."
 
-          # NOTE this is currently a single case of multi-process... process
-          if over_lay.duck
-            fail Error, "Don't know how to duck video... yet"  if over_lay.duck != :audio
+          # So ducking just audio here, ye?
+          # XXX check if we're on audio channel
 
-            Ffmprb.logger.info "ATTENTION: ducking audio (due to the absence of a simple ffmpeg filter) does not support streaming main input. yet."
+          main_av_o = @channel_lbl_ios["#{lbl_out}:a"]
+          fail Error, "Main output does not contain audio to duck"  unless main_av_o
 
-            # So ducking just audio here, ye?
-            # XXX check if we're on audio channel
+          intermediate_extname = Process.intermediate_channel_extname video: main_av_o.channel?(:video), audio: main_av_o.channel?(:audio)
+          main_av_inter_i, main_av_inter_o = File.threaded_buffered_fifo(intermediate_extname, reader_open_on_writer_idle_limit: Util::ThreadedIoBuffer.timeout * 2, proc_vis: process)
+          @channel_lbl_ios.each do |channel_lbl, io|
+            @channel_lbl_ios[channel_lbl] = main_av_inter_i  if io == main_av_o  # XXX ~~~spaghetti
+          end
+          process.proc_vis_edge process, main_av_o, :remove
+          process.proc_vis_edge process, main_av_inter_i
+          Ffmprb.logger.debug{"Re-routed the main audio output (#{main_av_inter_i.path}->...->#{main_av_o.path}) through the process of audio ducking"}
 
-            main_av_o = @channel_lbl_ios["#{lbl_out}:a"]
-            fail Error, "Main output does not contain audio to duck"  unless main_av_o
+          over_a_i, over_a_o = File.threaded_buffered_fifo(Process.intermediate_channel_extname(audio: true, video: false), proc_vis: process)
+          lbl_over = "o#{idx}d#{i}"
+          @filters.concat(
+            over_duck.reel.filters_for lbl_over, video: false, audio: channel(:audio)
+          )
+          @channel_lbl_ios["#{lbl_over}:a"] = over_a_i
+          process.proc_vis_edge process, over_a_i
+          Ffmprb.logger.debug{"Routed and buffering auxiliary output fifos (#{over_a_i.path}>#{over_a_o.path}) for overlay"}
 
-            intermediate_extname = Process.intermediate_channel_extname video: main_av_o.channel?(:video), audio: main_av_o.channel?(:audio)
-            main_av_inter_i, main_av_inter_o = File.threaded_buffered_fifo(intermediate_extname, reader_open_on_writer_idle_limit: Util::ThreadedIoBuffer.timeout * 2, proc_vis: process)
-            @channel_lbl_ios.each do |channel_lbl, io|
-              @channel_lbl_ios[channel_lbl] = main_av_inter_i  if io == main_av_o  # XXX ~~~spaghetti
-            end
-            process.proc_vis_edge process, main_av_o, :remove
-            process.proc_vis_edge process, main_av_inter_i
-            Ffmprb.logger.debug "Re-routed the main audio output (#{main_av_inter_i.path}->...->#{main_av_o.path}) through the process of audio ducking"
+          inter_i, inter_o = File.threaded_buffered_fifo(intermediate_extname, proc_vis: process)
+          Ffmprb.logger.debug{"Allocated fifos to buffer media (#{inter_i.path}>#{inter_o.path}) while finding silence"}
 
-            over_a_i, over_a_o = File.threaded_buffered_fifo(Process.intermediate_channel_extname(audio: true, video: false), proc_vis: process)
-            lbl_over = "o#{idx}l#{i}"
-            @filters.concat(
-              over_lay.reel.filters_for lbl_over, video: false, audio: channel(:audio)
-            )
-            @channel_lbl_ios["#{lbl_over}:a"] = over_a_i
-            process.proc_vis_edge process, over_a_i
-            Ffmprb.logger.debug "Routed and buffering auxiliary output fifos (#{over_a_i.path}>#{over_a_o.path}) for overlay"
+          ignore_broken_pipes_was = process.ignore_broken_pipes
+          process.ignore_broken_pipes = true  # NOTE audio ducking process may break the overlay pipe
 
-            inter_i, inter_o = File.threaded_buffered_fifo(intermediate_extname, proc_vis: process)
-            Ffmprb.logger.debug "Allocated fifos to buffer media (#{inter_i.path}>#{inter_o.path}) while finding silence"
+          Util::Thread.new "audio ducking" do
+            process.proc_vis_edge main_av_inter_o, inter_i  # XXX mark it better
+            silence = Ffmprb.find_silence(main_av_inter_o, inter_i)
 
-            ignore_broken_pipes_was = process.ignore_broken_pipes
-            process.ignore_broken_pipes = true  # NOTE audio ducking process may break the overlay pipe
-
-            Util::Thread.new "audio ducking" do
-              process.proc_vis_edge main_av_inter_o, inter_i  # XXX mark it better
-              silence = Ffmprb.find_silence(main_av_inter_o, inter_i)
-
-              silence_res = silence.map{|s| "#{s.start_at}-#{s.end_at}"}.join(', ')
-              Ffmprb.logger.debug "Audio ducking with silence: [#{silence_res}]"
+            silence_res = silence.map{|s| "#{s.start_at}-#{s.end_at}"}.join(', ')
+            Ffmprb.logger.debug{"Audio ducking with silence: [#{silence_res}]"}
 
 
-              # NOTE (not) ignoring broken pipes here is hopefully what the caller intended
-              Process.duck_audio inter_o, over_a_o, silence, main_av_o,
-                process_options: {parent: process, ignore_broken_pipes: ignore_broken_pipes_was, timeout: process.timeout},
-                video: channel(:video), audio: channel(:audio)
-            end
+            # NOTE (not) ignoring broken pipes here is hopefully what the caller intended
+            Process.duck_audio inter_o, over_a_o, silence, main_av_o,
+              process_options: {parent: process, ignore_broken_pipes: ignore_broken_pipes_was, timeout: process.timeout},
+              video: channel(:video), audio: channel(:audio)
           end
 
         end
@@ -334,8 +322,9 @@ module Ffmprb
         after: nil,
         transition: nil
       )
-        fail Error, "Supporting :transition with :after only at the moment, sorry."  unless
-          !transition || after || @lays.empty?
+        fail Error, "No time to roll (after: #{after})..."  if after && after.to_f <= 0
+        fail Error, "Supporting :transition with :after only at the moment, sorry."  unless !transition || after || @lays.empty?
+        Ffmprb.logger.warn "Overlays are over all the lays, so they'd better be after all the lays in the script."  unless @overlays.empty?
 
         add_lay reel, after, transition
       end
@@ -347,10 +336,20 @@ module Ffmprb
         transition: nil,
         duck: nil
       )
-        fail Error, "Ducking overlays should come last... for now"  if !duck && @overlays.last && @overlays.last.duck
+        fail Error, "No reel"  unless reel
+        at = at.to_f
+        fail Error, "No time to roll (at: #{at})..."  if at < 0
+        fail Error, "Video overlays are not implemented just yet, sorry..."  if reel.channel?(:video)
+        fail Error, "Don't know how to duck video... yet"  if duck && duck != :audio
+        fail Error, "No audio to have ducked"  if duck && !reel.channel?(:audio)
         Ffmprb.logger.warn "Overlays are over all the lays, so they'd better be after all the lays in the script."  if @lays.empty?
+        Ffmprb.logger.warn "Ducking overlays are over all the lays, and over all the overlays, so they'd better be after all the lays and the overlays in the script."  unless duck || @overducks.empty?
 
-        add_overlay reel, at, transition, duck
+        if duck
+          add_overduck reel, at, transition
+        else
+          add_overlay reel, at, transition
+        end
       end
 
       def channel(medium)
@@ -364,14 +363,15 @@ module Ffmprb
       private
 
       def add_lay(reel, after, transition)
-        fail Error, "No time to roll (after: #{after})..."  if after && after.to_f <= 0
-        Ffmprb.logger.warn "Overlays are over all the lays, so they'd better be after all the lays in the script."  unless @overlays.empty?
-
         @lays << OpenStruct.new(reel: reel, after: after, transition: transition && Transition.new(**transition))
       end
 
-      def add_overlay(reel, at, transition, duck)
-        @overlays << OpenStruct.new(reel: reel, at: at, transition: transition && Transition.new(**transition), duck: duck)
+      def add_overlay(reel, at, transition)
+        @overlays << OpenStruct.new(reel: reel, at: at, transition: transition && Transition.new(**transition))
+      end
+
+      def add_overduck(reel, at, transition)
+        @overducks << OpenStruct.new(reel: reel, at: at, transition: transition && Transition.new(**transition))
       end
 
     end

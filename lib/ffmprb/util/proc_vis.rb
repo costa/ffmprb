@@ -137,7 +137,7 @@ module Ffmprb
           @proc_vis_firebase_client =
             if proc_vis_firebase
               url = "https://#{proc_vis_firebase}.firebaseio.com/proc/"
-              Ffmprb.logger.debug "Connecting to #{url}"
+              Ffmprb.logger.debug{"Connecting to #{url}"}
               begin
                 Firebase::Client.new(url).tap do
                   Ffmprb.logger.info "Connected to #{url}"

@@ -11,7 +11,7 @@ module Ffmprb
       audio = File.temp('.wav')  if audio == true
       video = File.temp('.png')  if video == true
 
-      Ffmprb.logger.debug "Snap shooting files, video path: #{video ? video.path : 'NONE'}, audio path: #{audio ? audio.path : 'NONE'}"
+      Ffmprb.logger.debug{"Snap shooting files, video path: #{video ? video.path : 'NONE'}, audio path: #{audio ? audio.path : 'NONE'}"}
 
       fail Error, "Incorrect output extname (must be image)"  unless !video || video.channel?(:video) && !video.channel?(:audio)
       fail Error, "Incorrect audio extname (must be sound)"  unless !audio || audio.channel?(:audio) && !audio.channel?(:video)
@@ -30,7 +30,7 @@ module Ffmprb
         begin
           video.unlink  if video
           audio.unlink  if audio
-          Ffmprb.logger.debug "Removed sample files"
+          Ffmprb.logger.debug{"Removed sample files"}
         rescue
           Ffmprb.logger.warn "#{$!.class.name} removing sample files: #{$!.message}"
         end

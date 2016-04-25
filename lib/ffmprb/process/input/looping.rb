@@ -60,7 +60,7 @@ module Ffmprb
             end
           end
           cpy_io = File.temp_fifo(src_io.extname)
-          Ffmprb.logger.debug "(L2) Temporising the raw input (#{src_io.path}) and creating copy (#{cpy_io.path})"
+          Ffmprb.logger.debug{"(L2) Temporising the raw input (#{src_io.path}) and creating copy (#{cpy_io.path})"}
 
           src_io.threaded_buffered_copy_to @raw.io, cpy_io
 
@@ -70,9 +70,9 @@ module Ffmprb
           @raw.process.proc_vis_node dst_io
 
           Util::Thread.new "looping input processor" do
-            # Ffmprb.logger.debug "Processing before looping"
+            # Ffmprb.logger.debug{"Processing before looping"}
 
-            Ffmprb.logger.debug "(L3) Pre-processing into (#{dst_io.path})"
+            Ffmprb.logger.debug{"(L3) Pre-processing into (#{dst_io.path})"}
             Ffmprb.process @_unfiltered, parent: @raw.process do |unfiltered|  # TODO limit:
 
               inp = input(cpy_io)
@@ -83,10 +83,8 @@ module Ffmprb
             end
           end
 
-          # Ffmprb.logger.debug "Preprocessed (from #{src_io.path}) looping input: #{dst_io.path}, output: #{io.io.path}, and raw input copy will go through #{buff_raw_io.path} to #{@raw.io.path}..."
-
           buff_ios = (1..times).map{File.temp_fifo intermediate_extname}
-          Ffmprb.logger.debug "Preprocessed #{dst_io.path} will be teed to #{buff_ios.map(&:path).join '; '}"
+          Ffmprb.logger.debug{"Preprocessed #{dst_io.path} will be teed to #{buff_ios.map(&:path).join '; '}"}
           Util::Thread.new "cloning buffer watcher" do
             dst_io.threaded_buffered_copy_to(*buff_ios).tap do |io_buff|
               Util::Thread.join_children!
@@ -94,7 +92,7 @@ module Ffmprb
             end
           end
 
-          # Ffmprb.logger.debug "Concatenation of #{buff_ios.map(&:path).join '; '} will go to #{@io.io.path} to be fed to this process"
+          Ffmprb.logger.debug{"Concatenation of #{buff_ios.map(&:path).join '; '} will go to #{@io.io.path} to be fed to this process"}
 
           # NOTE additional (filtered, processed and looped) input io
           aux_io = File.temp_fifo(intermediate_extname)
@@ -102,9 +100,9 @@ module Ffmprb
           # NOTE (4)
 
           Util::Thread.new "looper" do
-            Ffmprb.logger.debug "Looping #{buff_ios.size} times"
+            Ffmprb.logger.debug{"Looping #{buff_ios.size} times"}
 
-            Ffmprb.logger.debug "(L4) Looping (#{buff_ios.map &:path}) into (#{aux_io.path})"
+            Ffmprb.logger.debug{"(L4) Looping (#{buff_ios.map &:path}) into (#{aux_io.path})"}
             begin  # NOTE may not write its entire output, it's ok
               Ffmprb.process parent: @raw.process, ignore_broken_pipes: false do
 
@@ -121,7 +119,7 @@ module Ffmprb
 
           # NOTE (1)
 
-          Ffmprb.logger.debug "(L1) Creating a new input (#{aux_io.path}) to the process"
+          Ffmprb.logger.debug{"(L1) Creating a new input (#{aux_io.path}) to the process"}
           @raw.process.input(aux_io)
         end
 

@@ -97,7 +97,10 @@ module Ffmprb
             end
             overlay in_over.volume ducked_overlay_volume
 
-            Ffmprb.logger.debug "Ducking audio with volumes: {#{ducked_overlay_volume.map{|t,v| "#{t}: #{v}"}.join ', '}}"
+            Ffmprb.logger.debug {
+              volumes = ducked_overlay_volume.map{|t,v| "#{t}: #{v}"}.join ', '  unless Ffmprb.logger.level
+              "Ducking audio with volumes: {#{volumes}}"
+            }
           end
 
         end

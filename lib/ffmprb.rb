@@ -24,13 +24,13 @@ module Ffmprb
       name ||=  blk.source_location.map(&:to_s).map{ |s| ::File.basename s.to_s, ::File.extname(s) }.join(':')
       process = Process.new(name: name, **opts)
       proc_vis_node process  if respond_to? :proc_vis_node  # XXX simply include the ProcVis if it makes into a gem
-      logger.debug "Starting process with #{args} #{opts} in #{blk.source_location}"
+      logger.debug{"Starting process with #{args} #{opts} in #{blk.source_location}"}
 
       process.instance_exec *args, &blk
-      logger.debug "Initialized process with #{args} #{opts} in #{blk.source_location}"
+      logger.debug{"Initialized process with #{args} #{opts} in #{blk.source_location}"}
 
       process.run.tap do
-        logger.debug "Finished process with #{args} #{opts} in #{blk.source_location}"
+        logger.debug{"Finished process with #{args} #{opts} in #{blk.source_location}"}
       end
     end
     alias :action! :process  # ;)

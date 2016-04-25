@@ -4,29 +4,35 @@ module Ffmprb
 
     # NOTE not for streaming just yet
     def find_silence(input_file, output_file)
-      path = "#{input_file.path}->#{output_file.path}"
-      logger.debug "Finding silence (#{path})"
-      silence = []
-      Util.ffmpeg('-i', input_file.path, *find_silence_detect_args, output_file.path).
-        scan(SILENCE_DETECT_REGEX).each do |mark, time|
-        time = time.to_f
+      logger.debug {
+        path = "#{input_file.path}->#{output_file.path}"
+        "Finding silence (#{path})"
+      }
+      [].tap do |silence|
+        Util.ffmpeg('-i', input_file.path, *find_silence_detect_args, output_file.path).
+          scan(SILENCE_DETECT_REGEX).each do |mark, time|
+          time = time.to_f
 
-        case mark
-        when 'start'
-          silence << OpenStruct.new(start_at: time)
-        when 'end'
-          if silence.empty?
-            silence << OpenStruct.new(start_at: 0.0, end_at: time)
+          case mark
+          when 'start'
+            silence << OpenStruct.new(start_at: time)
+          when 'end'
+            if silence.empty?
+              silence << OpenStruct.new(start_at: 0.0, end_at: time)
+            else
+              fail Error, "ffmpeg is being stupid: silence_end with no silence_start"  if silence.last.end_at
+              silence.last.end_at = time
+            end
           else
-            fail Error, "ffmpeg is being stupid: silence_end with no silence_start"  if silence.last.end_at
-            silence.last.end_at = time
+            Ffmprb.warn "Unknown silence mark: #{mark}"
           end
-        else
-          Ffmprb.warn "Unknown silence mark: #{mark}"
         end
+        logger.debug {
+          path = "#{input_file.path}->#{output_file.path}"
+          silence.map{|t,v| "#{t}: #{v}"}
+          "Found silence (#{path}): [#{silence_res}]"
+        }
       end
-      logger.debug "Found silence (#{path}): [#{silence.map{|t,v| "#{t}: #{v}"}}]"
-      silence
     end
 
     private

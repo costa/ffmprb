@@ -17,27 +17,27 @@ module Ffmprb
         ->{
           path = file.respond_to?(:path)? file.path : file
           mode ||= file.respond_to?(mode)? file.mode.to_s[0] : 'r'
-          Ffmprb.logger.debug "Trying to open #{path} (for #{mode}-buffering or something)"
+          Ffmprb.logger.debug{"Trying to open #{path} (for #{mode}-buffering or something)"}
           ::File.open(path, mode)
         }
       end
 
       def create(path)
         new(path: path, mode: :write).tap do |file|
-          Ffmprb.logger.debug "Created file with path: #{file.path}"
+          Ffmprb.logger.debug{"Created file with path: #{file.path}"}
         end
       end
 
       def open(path)
         new(path: path, mode: :read).tap do |file|
-          Ffmprb.logger.debug "Opened file with path: #{file.path}"
+          Ffmprb.logger.debug{"Opened file with path: #{file.path}"}
         end
       end
 
       def temp(extname)
         file = create(Tempfile.new(['', extname]))
         path = file.path
-        Ffmprb.logger.debug "Created temp file with path: #{path}"
+        Ffmprb.logger.debug{"Created temp file with path: #{path}"}
 
         return file  unless block_given?
 
@@ -49,7 +49,7 @@ module Ffmprb
           rescue
             Ffmprb.logger.warn "#{$!.class.name} removing temp file with path #{path}: #{$!.message}"
           end
-          Ffmprb.logger.debug "Removed temp file with path: #{path}"
+          Ffmprb.logger.debug{"Removed temp file with path: #{path}"}
         end
       end
 
@@ -69,7 +69,7 @@ module Ffmprb
           rescue
             Ffmprb.logger.warn "#{$!.class.name} removing temp file with path #{path}: #{$!.message}"
           end
-          Ffmprb.logger.debug "Removed temp file with path: #{path}"
+          Ffmprb.logger.debug{"Removed temp file with path: #{path}"}
         end
       end
 
@@ -168,7 +168,7 @@ module Ffmprb
       else
         FileUtils.remove_entry path
       end
-      Ffmprb.logger.debug "Removed file with path: #{path}"
+      Ffmprb.logger.debug{"Removed file with path: #{path}"}
       @path = nil
     end
 
