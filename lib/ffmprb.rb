@@ -4,6 +4,7 @@ require 'timeout'
 
 # IMPORTANT NOTE ffmprb uses threads internally, however, it is not "thread-safe"
 
+require_relative 'ffmprb/version'
 require_relative 'ffmprb/util'  # NOTE utils are like (micro-)gem candidates, errors are also there
 
 module Ffmprb

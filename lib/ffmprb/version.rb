@@ -1,6 +1,6 @@
 module Ffmprb
 
-  VERSION = '0.10.1'
+  VERSION = '0.11.2'
 
   GEM_GITHUB_URL = 'https://github.com/showbox-oss/ffmprb'
 
