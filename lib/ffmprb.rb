@@ -61,4 +61,4 @@ require_relative 'ffmprb/filter'
 require_relative 'ffmprb/find_silence'
 require_relative 'ffmprb/process'
 
-require 'defaults'
+require_relative 'defaults'
