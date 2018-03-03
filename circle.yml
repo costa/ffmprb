@@ -1,7 +1,0 @@
-dependencies:
-  pre:
-    - gem install bundler --pre
-    - sudo apt-add-repository -y ppa:oded-geek/multimedia && sudo apt-get update && sudo apt-get install ffmpeg && sudo apt-get install libsox-fmt-mp3
-test:
-  override:
-    - bundle exec rspec spec

@@ -1,0 +1,10 @@
+version: 2
+jobs:
+  build:
+    docker:
+      - image: circleci/ruby:2.3
+    steps:
+      - checkout
+      - run: gem install bundler --pre
+      - run: sudo apt-add-repository -y ppa:oded-geek/multimedia && sudo apt-get update && sudo apt-get install ffmpeg && sudo apt-get install libsox-fmt-mp3
+      - run: bundle exec rspec spec
